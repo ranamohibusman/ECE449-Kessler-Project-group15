@@ -11,4 +11,4 @@ pillow==13.0.0
 scikit-fuzzy==0.5.0
 scipy==1.18.1
 typing_extensions==4.16.0
-networkx.
+networkx
