@@ -4,8 +4,7 @@
 #   aim  -> turn_rate,  fire -> fire,  move -> thrust,  mine -> drop_mine
 # The membership function breakpoints come from a chromosome that the genetic
 # algorithm at the bottom of this file tunes. The GA only runs when you run this
-# file directly, e.g.
-#   python asteroid_annihilator.py --pop 16 --gens 14 --matches 2 --bake
+# file directly, e.g. python asteroid_annihilator.py --pop 16 --gens 14 --matches 2 --bake
 
 import argparse
 import json
@@ -143,7 +142,7 @@ class FuzzySystems:
         imminent = self.params["danger_imminent"]
         far = max(self.params["danger_far"], imminent + 0.3)
         mid = 0.5 * (imminent + far)
-        dead = self.params["pref_dead"]
+        dead_band = self.params["pref_dead"]
 
         danger = ctrl.Antecedent(np.linspace(0.0, 5.0, 51), "danger_time")
         pref = ctrl.Antecedent(np.linspace(-1.0, 1.0, 41), "escape_pref")
@@ -155,9 +154,9 @@ class FuzzySystems:
         danger["far"] = fuzz.trapmf(danger.universe, [mid, far, 5, 5])
 
         # escape_pref > 0: thrusting forward buys more time, < 0: reversing does
-        pref["back"] = fuzz.trapmf(pref.universe, [-1, -1, -dead - 0.2, -dead + 0.05])
-        pref["side"] = fuzz.trimf(pref.universe, [-dead - 0.05, 0, dead + 0.05])
-        pref["front"] = fuzz.trapmf(pref.universe, [dead - 0.05, dead + 0.2, 1, 1])
+        pref["back"] = fuzz.trapmf(pref.universe, [-1, -1, -dead_band - 0.2, -dead_band + 0.05])
+        pref["side"] = fuzz.trimf(pref.universe, [-dead_band - 0.05, 0, dead_band + 0.05])
+        pref["front"] = fuzz.trapmf(pref.universe, [dead_band - 0.05, dead_band + 0.2, 1, 1])
 
         speed["rev"] = fuzz.trapmf(speed.universe, [-240, -240, -60, -5])
         speed["still"] = fuzz.trimf(speed.universe, [-40, 0, 40])
@@ -191,7 +190,7 @@ class FuzzySystems:
         many = self.params["mine_many"]
         close = self.params["opp_close"]
         value = ctrl.Antecedent(np.linspace(0.0, 20.0, 41), "mine_value")
-        opp = ctrl.Antecedent(np.linspace(0.0, 1000.0, 51), "opp_distance")
+        opp_near = ctrl.Antecedent(np.linspace(0.0, 1000.0, 51), "opp_distance")
         drop = ctrl.Consequent(np.linspace(-1.0, 1.0, 21), "drop_mine")
 
         # mine_value = how many asteroids will be inside the blast when it goes off
@@ -199,16 +198,16 @@ class FuzzySystems:
         value["some"] = fuzz.trimf(value.universe, [many * 0.35, many * 0.7, many])
         value["many"] = fuzz.trapmf(value.universe, [many * 0.7, many, 20, 20])
 
-        opp["close"] = fuzz.trapmf(opp.universe, [0, 0, close * 0.6, close])
-        opp["far"] = fuzz.trapmf(opp.universe, [close * 0.6, close, 1000, 1000])
+        opp_near["close"] = fuzz.trapmf(opp_near.universe, [0, 0, close * 0.6, close])
+        opp_near["far"] = fuzz.trapmf(opp_near.universe, [close * 0.6, close, 1000, 1000])
 
         drop["no"] = fuzz.trimf(drop.universe, [-1, -1, 0])
         drop["yes"] = fuzz.trimf(drop.universe, [0, 1, 1])
 
         rules = [
             ctrl.Rule(value["many"], drop["yes"]),
-            ctrl.Rule(value["some"] & opp["close"], drop["yes"]),
-            ctrl.Rule(value["some"] & opp["far"], drop["no"]),
+            ctrl.Rule(value["some"] & opp_near["close"], drop["yes"]),
+            ctrl.Rule(value["some"] & opp_near["far"], drop["no"]),
             ctrl.Rule(value["few"], drop["no"]),
         ]
         return ctrl.ControlSystemSimulation(FastControlSystem(rules), cache=False)
@@ -231,7 +230,7 @@ class AsteroidAnnihilator(KesslerController):
         Simulates the ship (drag, speed cap, still turning toward its target)
         and checks asteroids, the other ship and mine blasts."""
         times = self.lookahead_times
-        step = LOOKAHEAD_STEP
+        time_step = LOOKAHEAD_STEP
 
         # where the ship will be at each look-ahead time
         path_x = np.empty(len(times))
@@ -239,17 +238,17 @@ class AsteroidAnnihilator(KesslerController):
         pos_x, pos_y, speed_now = ship_x, ship_y, speed
         for step_index in range(len(times)):
             if abs(speed_now) > 1e-9:
-                if thrust == 0.0 and abs(speed_now) <= 80.0 * step:
+                if thrust == 0.0 and abs(speed_now) <= 80.0 * time_step:
                     speed_next = 0.0
                 else:
-                    speed_next = speed_now + (thrust - 80.0 * math.copysign(1.0, speed_now)) * step
+                    speed_next = speed_now + (thrust - 80.0 * math.copysign(1.0, speed_now)) * time_step
             else:
-                speed_next = speed_now + (thrust - 80.0 * math.copysign(1.0, thrust)) * step if thrust != 0.0 else 0.0
+                speed_next = speed_now + (thrust - 80.0 * math.copysign(1.0, thrust)) * time_step if thrust != 0.0 else 0.0
             speed_next = max(-240.0, min(240.0, speed_next))
 
             # velocity always points where the ship is facing
-            angle = math.radians(heading + turn_rate * min(times[step_index] - 0.5 * step, turn_time))
-            step_dist = 0.5 * (speed_now + speed_next) * step
+            angle = math.radians(heading + turn_rate * min(times[step_index] - 0.5 * time_step, turn_time))
+            step_dist = 0.5 * (speed_now + speed_next) * time_step
             pos_x += step_dist * math.cos(angle)
             pos_y += step_dist * math.sin(angle)
             path_x[step_index] = pos_x
@@ -269,9 +268,9 @@ class AsteroidAnnihilator(KesslerController):
             if len(hit_steps):
                 first_hit = float(times[hit_steps[0]])
 
-            now_x = (ast_x - ship_x + map_width / 2) % map_width - map_width / 2
-            now_y = (ast_y - ship_y + map_height / 2) % map_height - map_height / 2
-            if np.any(now_x ** 2 + now_y ** 2 < (ast_radius + SHIP_RADIUS) ** 2):
+            gap_now_x = (ast_x - ship_x + map_width / 2) % map_width - map_width / 2
+            gap_now_y = (ast_y - ship_y + map_height / 2) % map_height - map_height / 2
+            if np.any(gap_now_x ** 2 + gap_now_y ** 2 < (ast_radius + SHIP_RADIUS) ** 2):
                 first_hit = 0.0
 
         for other in opponents:
@@ -287,12 +286,13 @@ class AsteroidAnnihilator(KesslerController):
 
         for mine in mines:
             fuse = float(mine["remaining_time"])
-            step_index = min(len(times) - 1, max(0, int(round(fuse / step)) - 1))
+            step_index = min(len(times) - 1, max(0, int(round(fuse / time_step)) - 1))
             if fuse > times[-1]:
                 step_index = len(times) - 1
             mine_x, mine_y = mine["position"]
-            gap_x = (mine_x - path_x[step_index] + map_width / 2) % map_width - map_width / 2
-            gap_y = (mine_y - path_y[step_index] + map_height / 2) % map_height - map_height / 2
+            # the blast doesn't wrap, so use plain distance to where we'll be on the map
+            gap_x = mine_x - path_x[step_index] % map_width
+            gap_y = mine_y - path_y[step_index] % map_height
             if gap_x ** 2 + gap_y ** 2 < (MINE_BLAST + SHIP_RADIUS + 15.0) ** 2:
                 # warn early so there is still time to run
                 first_hit = min(first_hit, max(0.0, fuse - MINE_ESCAPE_LEAD))
@@ -334,23 +334,25 @@ class AsteroidAnnihilator(KesslerController):
         # How soon each asteroid hits us if we just coast. Offsets wrap around the screen.
         time_to_collision = np.full(num_asteroids, np.inf)
         if num_asteroids:
-            ast_dx = (ast_x - ship_x + map_width / 2) % map_width - map_width / 2
-            ast_dy = (ast_y - ship_y + map_height / 2) % map_height - map_height / 2
-            rel_vx = ast_vel_x - ship_vel_x
-            rel_vy = ast_vel_y - ship_vel_y
+            ast_offset_x = (ast_x - ship_x + map_width / 2) % map_width - map_width / 2
+            ast_offset_y = (ast_y - ship_y + map_height / 2) % map_height - map_height / 2
+            relative_vel_x = ast_vel_x - ship_vel_x
+            relative_vel_y = ast_vel_y - ship_vel_y
             reach = ast_radius + SHIP_RADIUS + params["threat_margin"]
-            quad_a = rel_vx * rel_vx + rel_vy * rel_vy
-            quad_b = 2.0 * (ast_dx * rel_vx + ast_dy * rel_vy)
-            quad_c = ast_dx * ast_dx + ast_dy * ast_dy - reach * reach
+            quad_a = relative_vel_x * relative_vel_x + relative_vel_y * relative_vel_y
+            quad_b = 2.0 * (ast_offset_x * relative_vel_x + ast_offset_y * relative_vel_y)
+            quad_c = ast_offset_x * ast_offset_x + ast_offset_y * ast_offset_y - reach * reach
             discriminant = quad_b * quad_b - 4.0 * quad_a * quad_c
-            t_hit = (-quad_b - np.sqrt(np.maximum(discriminant, 0.0))) / (2.0 * quad_a)
-            will_hit = (discriminant >= 0) & (quad_a > 1e-9) & (t_hit >= 0)
-            time_to_collision = np.where(quad_c <= 0, 0.0, np.where(will_hit, t_hit, np.inf))
+            time_until_hit = (-quad_b - np.sqrt(np.maximum(discriminant, 0.0))) / (2.0 * quad_a)
+            will_hit = (discriminant >= 0) & (quad_a > 1e-9) & (time_until_hit >= 0)
+            time_to_collision = np.where(quad_c <= 0, 0.0, np.where(will_hit, time_until_hit, np.inf))
 
         opp_dist = 1000.0
         for other in opponents:
             other_x, other_y = other["position"]
-            opp_dist = min(opp_dist, math.hypot((other_x - ship_x + map_width / 2) % map_width - map_width / 2, (other_y - ship_y + map_height / 2) % map_height - map_height / 2))
+            gap_x = (other_x - ship_x + map_width / 2) % map_width - map_width / 2
+            gap_y = (other_y - ship_y + map_height / 2) % map_height - map_height / 2
+            opp_dist = min(opp_dist, math.hypot(gap_x, gap_y))
 
         # Asteroids that a bullet already in flight is going to destroy
         doomed = np.zeros(num_asteroids, dtype=bool)
@@ -360,21 +362,21 @@ class AsteroidAnnihilator(KesslerController):
             bullet_x, bullet_y, bullet_vel_x, bullet_vel_y = bullet_data[:, 0:1], bullet_data[:, 1:2], bullet_data[:, 2:3], bullet_data[:, 3:4]
             gap_x = ast_x[None, :] - bullet_x
             gap_y = ast_y[None, :] - bullet_y
-            rel_vx = ast_vel_x[None, :] - bullet_vel_x
-            rel_vy = ast_vel_y[None, :] - bullet_vel_y
-            rel_speed_sq = rel_vx * rel_vx + rel_vy * rel_vy
-            t_closest = np.clip(-(gap_x * rel_vx + gap_y * rel_vy) / np.maximum(rel_speed_sq, 1e-9), 0.0, 2.0)
-            miss_x = gap_x + rel_vx * t_closest
-            miss_y = gap_y + rel_vy * t_closest
-            hit = (miss_x * miss_x + miss_y * miss_y) < (ast_radius[None, :] + 1.0) ** 2
+            relative_vel_x = ast_vel_x[None, :] - bullet_vel_x
+            relative_vel_y = ast_vel_y[None, :] - bullet_vel_y
+            rel_speed_sq = relative_vel_x * relative_vel_x + relative_vel_y * relative_vel_y
+            time_of_closest_approach = np.clip(-(gap_x * relative_vel_x + gap_y * relative_vel_y) / np.maximum(rel_speed_sq, 1e-9), 0.0, 2.0)
+            miss_dist_x = gap_x + relative_vel_x * time_of_closest_approach
+            miss_dist_y = gap_y + relative_vel_y * time_of_closest_approach
+            hit = (miss_dist_x * miss_dist_x + miss_dist_y * miss_dist_y) < (ast_radius[None, :] + 1.0) ** 2
             # bullets disappear when they leave the map
-            end_x = bullet_x + bullet_vel_x * t_closest
-            end_y = bullet_y + bullet_vel_y * t_closest
+            end_x = bullet_x + bullet_vel_x * time_of_closest_approach
+            end_y = bullet_y + bullet_vel_y * time_of_closest_approach
             hit &= (end_x >= 0) & (end_x <= map_width) & (end_y >= 0) & (end_y <= map_height)
             # each bullet only kills the first asteroid it reaches
-            t_hit = np.where(hit, t_closest, np.inf)
-            first = np.argmin(t_hit, axis=1)
-            got_one = np.isfinite(t_hit[np.arange(len(first)), first])
+            time_until_hit = np.where(hit, time_of_closest_approach, np.inf)
+            first = np.argmin(time_until_hit, axis=1)
+            got_one = np.isfinite(time_until_hit[np.arange(len(first)), first])
             doomed[first[got_one]] = True
 
         # Pick a target: the asteroid we can turn to and hit soonest.
@@ -392,14 +394,14 @@ class AsteroidAnnihilator(KesslerController):
 
             turn_time = np.zeros_like(target_x)
             for _ in range(2):  # second pass accounts for the time spent turning
-                lead = turn_time + frame_time
-                fire_x = ship_x + ship_vel_x * lead
-                fire_y = ship_y + ship_vel_y * lead
-                rel_x = target_x + target_vel_x * lead - fire_x
-                rel_y = target_y + target_vel_y * lead - fire_y
+                fire_delay = turn_time + frame_time
+                fire_x = ship_x + ship_vel_x * fire_delay
+                fire_y = ship_y + ship_vel_y * fire_delay
+                target_offset_x = target_x + target_vel_x * fire_delay - fire_x
+                target_offset_y = target_y + target_vel_y * fire_delay - fire_y
                 quad_a = target_vel_x * target_vel_x + target_vel_y * target_vel_y - BULLET_SPEED ** 2
-                quad_b = 2.0 * (rel_x * target_vel_x + rel_y * target_vel_y) - 2.0 * BULLET_SPEED * SHIP_RADIUS
-                quad_c = rel_x * rel_x + rel_y * rel_y - SHIP_RADIUS ** 2
+                quad_b = 2.0 * (target_offset_x * target_vel_x + target_offset_y * target_vel_y) - 2.0 * BULLET_SPEED * SHIP_RADIUS
+                quad_c = target_offset_x * target_offset_x + target_offset_y * target_offset_y - SHIP_RADIUS ** 2
                 discriminant = np.maximum(quad_b * quad_b - 4.0 * quad_a * quad_c, 0.0)
                 # a == 0 only if an asteroid moves at exactly bullet speed; then it's linear
                 linear = np.abs(quad_a) < 1e-6
@@ -409,45 +411,46 @@ class AsteroidAnnihilator(KesslerController):
                 root_linear = np.where(np.abs(quad_b) > 1e-9, -quad_c / np.where(np.abs(quad_b) > 1e-9, quad_b, 1.0), np.inf)
                 bullet_time = np.where(linear, root_linear, np.maximum(root1, root2))
                 bullet_time = np.where(np.isfinite(bullet_time), np.maximum(bullet_time, 0.0), 1e9)
-                hit_x = rel_x + target_vel_x * bullet_time
-                hit_y = rel_y + target_vel_y * bullet_time
+                hit_x = target_offset_x + target_vel_x * bullet_time
+                hit_y = target_offset_y + target_vel_y * bullet_time
                 angle = np.degrees(np.arctan2(hit_y, hit_x))
-                diff = (angle - heading + 180.0) % 360.0 - 180.0
-                turn_time = np.abs(diff) / MAX_TURN
+                angle_diff = (angle - heading + 180.0) % 360.0 - 180.0
+                turn_time = np.abs(angle_diff) / MAX_TURN
 
             # the intercept has to be on the map (bullets don't wrap)
             world_x = hit_x + fire_x
             world_y = hit_y + fire_y
-            valid = ((world_x > target_radius) & (world_x < map_width - target_radius) & (world_y > target_radius) & (world_y < map_height - target_radius)
-                     & ~target_doomed & (bullet_time < 1.4))
+            on_map = ((world_x > target_radius) & (world_x < map_width - target_radius)
+                      & (world_y > target_radius) & (world_y < map_height - target_radius))
+            valid = on_map & ~target_doomed & (bullet_time < 1.4)
             if valid.any():
                 cost = turn_time + params["bullet_weight"] * bullet_time - params["threat_priority"] * np.exp(-target_time_to_collision)
                 cost = np.where(valid, cost, np.inf)
-                aim_error = float(diff[int(np.argmin(cost))])
+                aim_error = float(angle_diff[int(np.argmin(cost))])
 
         turn_rate = fuzzy.run(fuzzy.aim, {"aim_error": float(min(max(aim_error, -30.0), 30.0))}, "turn_rate")
         turn_rate = float(min(max(turn_rate, -MAX_TURN), MAX_TURN))
 
         # Movement: how long until we hit something if we go forward, coast, or reverse?
         turn_time = min(abs(aim_error) / MAX_TURN, LOOKAHEAD_STEP * LOOKAHEAD_STEPS)
-        t_fwd, t_coast, t_rev = (self.time_to_impact(plan_thrust, ship_x, ship_y, speed, heading, turn_rate, turn_time,
-                                                     ast_x, ast_y, ast_vel_x, ast_vel_y, ast_radius, opponents, mines, map_width, map_height)
-                                 for plan_thrust in (MAX_THRUST_OUT, 0.0, -MAX_THRUST_OUT))
-        danger_time = t_coast
-        best = max(t_fwd, t_rev)
-        escape_pref = (t_fwd - t_rev) / best if best > 1e-6 else 0.0
+        time_safe_forward, time_safe_coast, time_safe_reverse = (
+            self.time_to_impact(plan_thrust, ship_x, ship_y, speed, heading, turn_rate, turn_time,
+                                ast_x, ast_y, ast_vel_x, ast_vel_y, ast_radius, opponents, mines, map_width, map_height)
+            for plan_thrust in (MAX_THRUST_OUT, 0.0, -MAX_THRUST_OUT))
+        danger_time = time_safe_coast
+        best_escape_time = max(time_safe_forward, time_safe_reverse)
+        escape_pref = (time_safe_forward - time_safe_reverse) / best_escape_time if best_escape_time > 1e-6 else 0.0
 
-        mine_near = any(math.hypot((mine["position"][0] - ship_x + map_width / 2) % map_width - map_width / 2,
-                                   (mine["position"][1] - ship_y + map_height / 2) % map_height - map_height / 2) < MINE_BLAST + SHIP_RADIUS + 30.0
+        mine_near = any(math.hypot(mine["position"][0] - ship_x, mine["position"][1] - ship_y) < MINE_BLAST + SHIP_RADIUS + 30.0
                         for mine in mines)
 
         # Just respawned and invincible: move away from nearby asteroids
         if respawning and respawn_left > 0.5 and num_asteroids:
-            dist_sq = ast_dx * ast_dx + ast_dy * ast_dy + 1.0
-            near = dist_sq < 300.0 ** 2
+            dist_squared = ast_offset_x * ast_offset_x + ast_offset_y * ast_offset_y + 1.0
+            near = dist_squared < 300.0 ** 2
             if near.any():
-                away_x = -float(np.sum(ast_dx[near] / dist_sq[near]))
-                away_y = -float(np.sum(ast_dy[near] / dist_sq[near]))
+                away_x = -float(np.sum(ast_offset_x[near] / dist_squared[near]))
+                away_y = -float(np.sum(ast_offset_y[near] / dist_squared[near]))
                 length = math.hypot(away_x, away_y)
                 if length > 1e-9:
                     angle_rad = math.radians(heading)
@@ -468,22 +471,22 @@ class AsteroidAnnihilator(KesslerController):
             bullet_vel_x, bullet_vel_y = BULLET_SPEED * dir_x, BULLET_SPEED * dir_y
             gap_x = ast_x + ast_vel_x * frame_time - start_x
             gap_y = ast_y + ast_vel_y * frame_time - start_y
-            rel_vx = ast_vel_x - bullet_vel_x
-            rel_vy = ast_vel_y - bullet_vel_y
-            rel_speed_sq = rel_vx * rel_vx + rel_vy * rel_vy
-            t_closest = np.clip(-(gap_x * rel_vx + gap_y * rel_vy) / np.maximum(rel_speed_sq, 1e-9), 0.0, 1.6)
-            miss_x = gap_x + rel_vx * t_closest
-            miss_y = gap_y + rel_vy * t_closest
-            ratio = np.sqrt(miss_x * miss_x + miss_y * miss_y) / ast_radius
-            end_x = start_x + bullet_vel_x * t_closest
-            end_y = start_y + bullet_vel_y * t_closest
+            relative_vel_x = ast_vel_x - bullet_vel_x
+            relative_vel_y = ast_vel_y - bullet_vel_y
+            rel_speed_sq = relative_vel_x * relative_vel_x + relative_vel_y * relative_vel_y
+            time_of_closest_approach = np.clip(-(gap_x * relative_vel_x + gap_y * relative_vel_y) / np.maximum(rel_speed_sq, 1e-9), 0.0, 1.6)
+            miss_dist_x = gap_x + relative_vel_x * time_of_closest_approach
+            miss_dist_y = gap_y + relative_vel_y * time_of_closest_approach
+            miss_ratio = np.sqrt(miss_dist_x * miss_dist_x + miss_dist_y * miss_dist_y) / ast_radius
+            end_x = start_x + bullet_vel_x * time_of_closest_approach
+            end_y = start_y + bullet_vel_y * time_of_closest_approach
             usable = (end_x >= 0) & (end_x <= map_width) & (end_y >= 0) & (end_y <= map_height) & ~doomed
-            hits = usable & (ratio < 1.0)
+            hits = usable & (miss_ratio < 1.0)
             if hits.any():
                 # whichever asteroid the bullet reaches first is the one that counts
-                shot_quality = float(ratio[int(np.argmin(np.where(hits, t_closest, np.inf)))])
+                shot_quality = float(miss_ratio[int(np.argmin(np.where(hits, time_of_closest_approach, np.inf)))])
             elif usable.any():
-                shot_quality = float(min(3.0, ratio[usable].min()))
+                shot_quality = float(min(3.0, miss_ratio[usable].min()))
 
         fire_out = fuzzy.run(fuzzy.fire, {"shot_quality": float(min(shot_quality, 3.0)),
                                           "respawn_left": float(min(respawn_left, 3.0))}, "fire")
@@ -492,7 +495,7 @@ class AsteroidAnnihilator(KesslerController):
         # Mines: only if no other mine is about to go off near us and we have a way out
         drop_mine = False
         if (ship_state["mines_remaining"] != 0 and ship_state["can_deploy_mine"] and not mine_near and num_asteroids
-                and max(t_fwd, t_rev) >= MINE_ESCAPE_LEAD):
+                and max(time_safe_forward, time_safe_reverse) >= MINE_ESCAPE_LEAD):
             # asteroids wrap but the blast doesn't, so use plain distance here
             future_x = (ast_x + ast_vel_x * MINE_FUSE) % map_width
             future_y = (ast_y + ast_vel_y * MINE_FUSE) % map_height
@@ -620,7 +623,7 @@ def mutate(c, rate=0.2, sigma=0.12):
 def bake(chromosome, target):
     with open(target) as f:
         src = f.read()
-    line = "DEFAULT_CHROMOSOME = [" + ", ".join("%.3f" % g for g in chromosome) + "]"
+    line = "DEFAULT_CHROMOSOME = [" + ", ".join(repr(float(g)) for g in chromosome) + "]"
     src, count = re.subn(r"^DEFAULT_CHROMOSOME = \[.*\]$", line, src, count=1, flags=re.M)
     if count == 0:
         raise SystemExit("--bake: no DEFAULT_CHROMOSOME line found in " + target)
