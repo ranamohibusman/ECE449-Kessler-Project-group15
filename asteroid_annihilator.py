@@ -3,7 +3,6 @@
 # Four fuzzy systems (skfuzzy, Mamdani) decide everything the ship does:
 #   aim  -> turn_rate,  fire -> fire,  move -> thrust,  mine -> drop_mine
 # The membership function breakpoints come from a chromosome that the genetic algorithm at the bottom of this file tunes. 
-# The GA only runs when you run this file directly
 
 import argparse
 import json
