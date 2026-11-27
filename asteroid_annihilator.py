@@ -1,4 +1,4 @@
-# Asteroid Annihilator
+# Asteroid Annihilator: Group 15 (Rajit Shah, Mohib Usman, Haydn Gareth Wowk)
 #
 # Four fuzzy systems (skfuzzy, Mamdani) decide everything the ship does:
 #   aim  -> turn_rate,  fire -> fire,  move -> thrust,  mine -> drop_mine
