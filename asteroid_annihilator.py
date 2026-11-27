@@ -2,9 +2,8 @@
 #
 # Four fuzzy systems (skfuzzy, Mamdani) decide everything the ship does:
 #   aim  -> turn_rate,  fire -> fire,  move -> thrust,  mine -> drop_mine
-# The membership function breakpoints come from a chromosome that the genetic
-# algorithm at the bottom of this file tunes. The GA only runs when you run this
-# file directly, e.g. python asteroid_annihilator.py --pop 16 --gens 14 --matches 2 --bake
+# The membership function breakpoints come from a chromosome that the genetic algorithm at the bottom of this file tunes. 
+# The GA only runs when you run this file directly
 
 import argparse
 import json
@@ -55,7 +54,7 @@ MINE_ESCAPE_LEAD = 2.0   # warn about a mine this many seconds before it blows
 
 
 class FastControlSystem(ctrl.ControlSystem):
-    # Stock skfuzzy works out the rule order again on every compute() (~4 ms).
+    # Stock skfuzzy works out the rule order again on every compute()
     # Caching it gives the same answers about 15x faster.
     @property
     def rules(self):
